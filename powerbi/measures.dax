@@ -1,0 +1,121 @@
+// =====================================================================
+// DAX Measures — Olist Customer Geography & Loyalty Dashboard
+// Tabel: FactCustomerRecord (customers_clean.csv), DimCustomer (dim_customer.csv),
+//        DimGeography (dim_city.csv + dim_state.csv), _Measures (tabel kosong)
+// Format persen: set Format = Percentage, 2 desimal di Measure tools.
+// =====================================================================
+
+// ---------- A. VOLUME ----------
+Total Records =
+    COUNTROWS ( FactCustomerRecord )
+// Jumlah customer_id. ASUMSI: 1 customer_id = 1 pesanan -> proksi total pesanan.
+
+Unique Customers =
+    DISTINCTCOUNT ( FactCustomerRecord[customer_unique_id] )
+// Jumlah orang unik. Catatan: 39 pelanggan tercatat di >1 state, sehingga
+// jumlah per-state bisa sedikit lebih besar dari total (non-additive).
+
+Cities Covered =
+    DISTINCTCOUNT ( FactCustomerRecord[city_state_key] )
+
+ZIP Prefixes Covered =
+    DISTINCTCOUNT ( FactCustomerRecord[customer_zip_code_prefix] )
+
+Customers per City =
+    DIVIDE ( [Unique Customers], [Cities Covered] )
+// Kepadatan pelanggan per kota terlayani. Tinggi = pasar terkonsentrasi di kota besar.
+
+// ---------- B. LOYALTY / RETENTION ----------
+Repeat Customers =
+    CALCULATE ( [Unique Customers], DimCustomer[is_repeat_customer] = TRUE () )
+
+Repeat Customer Rate =
+    DIVIDE ( [Repeat Customers], [Unique Customers] )
+// % pelanggan yang punya >1 record. Baseline nasional: 3,12%.
+
+One-time Customer Rate =
+    1 - [Repeat Customer Rate]
+
+Loyal Customers (3x+) =
+    CALCULATE ( [Unique Customers], DimCustomer[records] >= 3 )
+
+High Frequency Customers (5x+) =
+    CALCULATE ( [Unique Customers], DimCustomer[records] >= 5 )
+
+Avg Records per Customer =
+    DIVIDE ( [Total Records], [Unique Customers] )
+
+Repeat Rate National =
+    CALCULATE ( [Repeat Customer Rate], ALL ( DimGeography ) )
+
+Repeat Rate vs National (pp) =
+    ( [Repeat Customer Rate] - [Repeat Rate National] ) * 100
+// Selisih dalam poin persentase. Positif = di atas rata-rata nasional.
+
+Repeat Rate Flag =
+    VAR n = [Unique Customers]
+    RETURN
+        SWITCH (
+            TRUE (),
+            n < 300, "Sampel kecil",
+            [Repeat Rate vs National (pp)] >= 0.2, "Di atas rata-rata",
+            [Repeat Rate vs National (pp)] <= -0.2, "Di bawah rata-rata",
+            "Setara rata-rata"
+        )
+// Dipakai untuk conditional formatting; state <300 pelanggan tidak dinilai.
+
+// ---------- C. KONTRIBUSI & KONSENTRASI ----------
+Customer Share % =
+    DIVIDE ( [Unique Customers], CALCULATE ( [Unique Customers], ALL ( DimGeography ) ) )
+
+Customer Share % (in Selection) =
+    DIVIDE ( [Unique Customers], CALCULATE ( [Unique Customers], ALLSELECTED ( DimGeography ) ) )
+
+State Rank =
+    RANKX ( ALL ( DimGeography[customer_state] ), [Unique Customers], , DESC, DENSE )
+
+Top 5 State Share % =
+    VAR Top5 =
+        TOPN ( 5, ALL ( DimGeography[customer_state] ), [Unique Customers], DESC )
+    RETURN
+        DIVIDE (
+            CALCULATE ( [Unique Customers], Top5 ),
+            CALCULATE ( [Unique Customers], ALL ( DimGeography ) )
+        )
+
+Top 10 City Share % =
+    VAR Top10 =
+        TOPN ( 10, ALL ( DimGeography[city_state_key] ), [Unique Customers], DESC )
+    RETURN
+        DIVIDE (
+            CALCULATE ( [Unique Customers], Top10 ),
+            CALCULATE ( [Unique Customers], ALL ( DimGeography ) )
+        )
+
+Cumulative City Share % =
+    VAR CurrentValue = [Unique Customers]
+    VAR CityTable =
+        ADDCOLUMNS ( ALLSELECTED ( DimGeography[city_state_key] ), "@cust", [Unique Customers] )
+    RETURN
+        DIVIDE (
+            SUMX ( FILTER ( CityTable, [@cust] >= CurrentValue ), [@cust] ),
+            SUMX ( CityTable, [@cust] )
+        )
+// Untuk Pareto chart (line). Kota dengan nilai sama dihitung bersamaan (ties).
+
+Single-Customer Cities =
+    COUNTROWS (
+        FILTER ( VALUES ( DimGeography[city_state_key] ), [Unique Customers] = 1 )
+    )
+
+// ---------- D. MOBILITAS ----------
+Customers Changed ZIP =
+    CALCULATE ( [Unique Customers], DimCustomer[moved_location] = TRUE () )
+
+// ---------- E. LABEL DINAMIS ----------
+Title Geography =
+    VAR sel = SELECTEDVALUE ( DimGeography[region], "Semua Region" )
+    RETURN "Basis Pelanggan — " & sel
+
+KPI Subtitle Repeat =
+    "Nasional: " & FORMAT ( [Repeat Rate National], "0.00%" )

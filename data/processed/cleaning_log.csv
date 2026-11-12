@@ -1,0 +1,9 @@
+step,rows,cols,missing_cells,duplicate_rows,note
+0_raw,99441,5,0,0,data mentah
+1_missing_check,99441,5,0,0,0 missing value -> tidak ada imputasi
+2_duplicates,99441,5,0,0,"duplikat baris=0, duplikat customer_id=0 -> tidak ada yang dihapus"
+3_standardize,99441,5,0,0,"trim, zfill(5) kode pos, UPPER state, lower+tanpa aksen city"
+4_validate,99441,5,0,0,"state termasuk 27 UF, zip 5 digit, id 32-hex: semua valid"
+5_city_consistency,99441,5,0,0,6 grup varian kota distandarkan
+6_features,99441,11,0,0,"city_state_key, state_name, region, city_display, records_per_customer, is_repeat_customer"
+7_outlier_flag,99441,12,0,0,19 pelanggan ditandai high-frequency (>=5 record)
